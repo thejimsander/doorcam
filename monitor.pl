@@ -15,8 +15,9 @@ $LOCAL_PORT = ($< == 0) ? $PRIV_PORT : $NONPRIV_PORT;
 use HTTP::Daemon;
 use HTTP::Status;
 use POSIX;
+use MIME::Base64;
 use CGI;
-$q = new CGI;
+#use Data::Dumper;
 
 # we want defunct child processes to just go away
 $SIG{CHLD} = 'IGNORE';
@@ -29,7 +30,7 @@ $d = HTTP::Daemon->new(
 
 #define the string – used in html links
 $addr = "http://$HOSTNAME.local" . ($LOCAL_PORT == $PRIV_PORT ? '' : ":$LOCAL_PORT");
-print "Please contact me at: <URL:  $addr  >\n" if($DEBUG);
+print "Please contact me at: < URL :  $addr >\n" if($DEBUG);
 
 # if we're running as root, and LOCAL_USER is defined, drop privileges to make this a safer service
 if($< == 0 and $> == 0 and $LOCAL_USER){
@@ -54,6 +55,7 @@ while (my $cnxn = $d->accept) {
 	$c++;
 	print "New connection: $c\n" if($DEBUG);
 	while (my $req = $cnxn->get_request) {
+						
 		$i++;
 		print "New request $i\n" if($DEBUG);
 
@@ -64,139 +66,120 @@ while (my $cnxn = $d->accept) {
 			$cnxn->send_error(RC_FORBIDDEN);
 		}
 		else{
-
-			# convert the rest of the url into "parameters" blindly
-			%url = ();
-			for (split/\//,$req->uri->path){
-				($l,$r)=split/=/;
-				next unless ($l); # skip blanks, but keep 'g'
-				$url{$l}=$r;
-				print "  > $l -> $url{$l}\n" if($DEBUG);
-			}
+			$the_uri = $req->uri;
+			$the_uri =~ s/^\/\?//;
+			
+			$IN = new CGI ($the_uri);	
 
 			# set defaults
-			$width=int($q->{'width'});
+			$width=int($IN->param('width'));
 			$width||=1920;
 
-			$height=int($q->{'height'});
+			$height=int($IN->param('height'));
 			$height||=1080;
 			
-			$delay=int($q->{'delay'});
+			$delay=int($IN->param('delay'));
 			$delay||=100;
 
 			# Exposure Mode
 			# off,auto,night,nightpreview,backlight,spotlight,sports,snow,beach,verylong,fixedfps,antishake,fireworks
-			$ex=$q->{'ex'};
+			$ex=$IN->param('ex');
 			$ex||='auto';
 			
 			# Auto White Balance Mode
 			# off,auto,sun,cloud,shade,tungsten,fluorescent,incandescent,flash,horizon,greyworld
-			$awb=$q->{'awb'};
+			$awb=$IN->param('awb');
 			$awb||='auto';
 
 			# Metering Mode
 			# average,spot,backlit,matrix
-			$mm=$q->{'mm'};
+			$mm=$IN->param('mm');
 			$mm||='matrix';
 			
 			# Dynamic Range Compression
 			# off,low,med,high
-			$drc = $q->{'drc'};
+			$drc = $IN->param('drc');
 			$drc||='off';
 			
-			$rot=int($q->{'rot'});
+			$rot=int($IN->param('rot'));
 			$rot||=0;
 
-			$ss=int($q->{'ss'});
+			$ss=int($IN->param('ss'));
 			$ss||=10000;
 			
 			
-			if(exists $url{'g'}){
-				# command-line to produce the image we're about to serve out
-				$cmd = "raspistill -t $delay -ss $ss -ex $ex -awb $awb -mm $mm -drc $drc -rot $rot -w $width -h $height -o - ";
+			# command-line to produce the image we're about to serve out
+			$cmd = "raspistill -t $delay -ss $ss -ex $ex -awb $awb -mm $mm -drc $drc -rot $rot -w $width -h $height -o - ";
+		
+			# do it!
+			print "$c / $i\t$cmd\n" if($DEBUG);
+			$imgdata = encode_base64(`$cmd`);
 			
-				# do it!
-				print "$c / $i\t$cmd\n" if($DEBUG);
-				$imgdata = `$cmd`;
+			$menu ='';
+			
+			$menu .= $IN->popup_menu(
+				-name    => 'width',
+				-values  => [1920, 1280, 1024, 640],
+				-default => $width
+			);
 
-				# send the image back to the client
-				$cnxn->send_response(
-					HTTP::Response->new(
-						RC_OK,
-						undef,
-						[
-							'Content-Type' => "image/png",
-							'Cache-Control' => 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0',
-							'Pragma' => 'no-cache'
-						],
-						$imgdata
-					)
-				);
-			}
-			else{
+			$menu .= $IN->popup_menu(
+				-name    => 'height',
+				-values  => [1080, 800, 600, 480],
+				-default => $height
+			);
 
-				$menu .= $q->popup_menu(
-					-name    => 'width',
-					-values  => [1920, 1280, 1024, 640],
-					-default => $width
-				);
+			$menu .= $IN->popup_menu(
+				-name    => 'delay',
+				-values  => [80, 100, 200, 400],
+				-default => $delay
+			);
 
-				$menu .= $q->popup_menu(
-					-name    => 'height',
-					-values  => [1080, 800, 600, 480],
-					-default => $height
-				);
-	
-				$menu .= $q->popup_menu(
-					-name    => 'delay',
-					-values  => [80, 100, 200, 400],
-					-default => $delay
-				);
-	
-				$menu .= $q->popup_menu(
-					-name    => 'rot',
-					-values  => [0, 90, 180, 270],
-					-default => $rot
-				);
-	
-				$menu .= $q->popup_menu(
-					-name    => 'ex',
-					-values  => ['off','auto','night','nightpreview','backlight','spotlight','sports','snow','beach','verylong','fixedfps','antishake','fireworks'],
-					-default => $ex
-				);
-				$menu .= $q->popup_menu(
-					-name    => 'awb',
-					-values  => ['off','auto','sun','cloud','shade','tungsten','fluorescent','incandescent','flash','horizon','greyworld'],
-					-default => $awb
-				);    
+			$menu .= $IN->popup_menu(
+				-name    => 'rot',
+				-values  => [0, 90, 180, 270],
+				-default => $rot
+			);
 
-				$menu .= $q->popup_menu(
-					-name    => 'mm',
-					-values  => ['average','spot','backlit','matrix'],
-					-default => $mm
-				);
+			$menu .= $IN->popup_menu(
+				-name    => 'ex',
+				-values  => ['off','auto','night','nightpreview','backlight','spotlight','sports','snow','beach','verylong','fixedfps','antishake','fireworks'],
+				-default => $ex
+			);
+			$menu .= $IN->popup_menu(
+				-name    => 'awb',
+				-values  => ['off','auto','sun','cloud','shade','tungsten','fluorescent','incandescent','flash','horizon','greyworld'],
+				-default => $awb
+			);    
 
-				$menu .= $q->popup_menu(
-					-name    => 'drc',
-					-values  => ['off','low','med','high'],
-					-default => $drc
-				);
-	
-				$menu .= $q->popup_menu(
-					-name    => 'ss',
-					-values  => [10000000, 1000000, 100000, 50000, 10000, 1000],
-					-default => $ss
-				);    
+			$menu .= $IN->popup_menu(
+				-name    => 'mm',
+				-values  => ['average','spot','backlit','matrix'],
+				-default => $mm
+			);
 
-				$menu .= $q->submit(
-					-value => 'Refresh'
-				);
+			$menu .= $IN->popup_menu(
+				-name    => 'drc',
+				-values  => ['off','low','med','high'],
+				-default => $drc
+			);
 
-				# CSS-formatted strings of the image size
-				$widthpx = $width."px";
-				$heightpx = $height."px";
-				
-				$html = <<"EOF";
+			$menu .= $IN->popup_menu(
+				-name    => 'ss',
+				-values  => [10000000, 1000000, 100000, 50000, 10000, 1000],
+				-default => $ss
+			);    
+
+			$menu .= $IN->submit(
+				-value => 'Refresh'
+			);
+
+			# CSS-formatted strings of the image size
+			$widthpx = $width."px";
+			$heightpx = $height."px";
+			$form_url = $IN->self_url;
+
+			$html = <<"EOF";
 <html>
 <head>
 	<link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAA0VXHyAAAA5klEQVQ4EWPs6OioY2BgqAZiNiAmBfwCKm5lAhLkaAZZBLKwGmQAqTaDNMMAG8gAigALum5Xhg1AJ/1EFwbzvzLwMhxg8EKRw3DBawZJBnWGKwx/GZgZXjJIgzETwz8GZYabDG8YxFE0gzgYBlxgMGf4w8DKcIdBk+EMgw0YP2BQZfjBwAE01piwARgqCAhguICAegxp+hjwE+h/HobPDEYMx4lzwSkGW4b3DKJwxfcZ1BguMpgxiDC8gIvBGBjpACRxgsERJg+mfwNTxl4GXxQxGIcqYQDKVeSCXyAXtAIxOYaAszMAy94piUc+GLIAAAAASUVORK5CYII=" />
@@ -218,28 +201,25 @@ while (my $cnxn = $d->accept) {
 	</style>
 </head>
 <body>
-<div class="imgbox"><img src="/g//delay=$delay/ss=$ss/ex=$ex/awb=$awb/mm=$mm/drc=$drc/rot=$rot/width=$width/height=$height/"></div>
+<div class='imgbox'><img src='data:image/gif;base64, $imgdata'></div>
 <div>
-<hr>
-<form>$menu</form>
-<hr>
+<form action='$addr' method='GET'>$menu</form>
 </div>
 </body>
 </html>
 EOF
 
-				# send something back to the client
-				$cnxn->send_response(
-					HTTP::Response->new(
-						RC_OK,
-						undef,
-						[
-							'Content-Type' => "text/html"
-						],
-						$html
-					)
-				);
-			}
+			# send something back to the client
+			$cnxn->send_response(
+				HTTP::Response->new(
+					RC_OK,
+					undef,
+					[
+						'Content-Type' => "text/html"
+					],
+					$html
+				)
+			);
 		}
 		print "Request done! ($i)\n" if($DEBUG);
 	}
