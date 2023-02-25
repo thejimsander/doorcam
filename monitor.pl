@@ -107,6 +107,8 @@ while (my $cnxn = $d->accept) {
 			$ss=int($IN->param('ss'));
 			$ss||=10000;
 			
+			$refresh=int($IN->param('refresh'));
+			$refresh||=300;
 			
 			# command-line to produce the image we're about to serve out
 			$cmd = "raspistill -t $delay -ss $ss -ex $ex -awb $awb -mm $mm -drc $drc -rot $rot -w $width -h $height -o - ";
@@ -123,55 +125,64 @@ while (my $cnxn = $d->accept) {
 				-default => $width
 			);
 
-			$menu .= $IN->popup_menu(
+			$menu .= "&nbsp;X&nbsp;" . $IN->popup_menu(
 				-name    => 'height',
 				-values  => [1080, 800, 600, 480],
 				-default => $height
 			);
 
-			$menu .= $IN->popup_menu(
-				-name    => 'delay',
-				-values  => [80, 100, 200, 400],
-				-default => $delay
-			);
+			#$menu .= "Delay:" . $IN->popup_menu(
+			#	-name    => 'delay',
+			#	-values  => [80, 100, 200, 400],
+			#	-default => $delay
+			#);
 
-			$menu .= $IN->popup_menu(
+			$menu .= "Rot:" . $IN->popup_menu(
 				-name    => 'rot',
 				-values  => [0, 90, 180, 270],
+				#-labels  => {0 => "0&deg;", 90 => "90&deg;", 180 => '180&deg;', 270 => '270&deg;'},
 				-default => $rot
 			);
 
-			$menu .= $IN->popup_menu(
+			$menu .= "Exp:" . $IN->popup_menu(
 				-name    => 'ex',
 				-values  => ['off','auto','night','nightpreview','backlight','spotlight','sports','snow','beach','verylong','fixedfps','antishake','fireworks'],
 				-default => $ex
 			);
-			$menu .= $IN->popup_menu(
+			$menu .= "WB:" . $IN->popup_menu(
 				-name    => 'awb',
 				-values  => ['off','auto','sun','cloud','shade','tungsten','fluorescent','incandescent','flash','horizon','greyworld'],
 				-default => $awb
 			);    
 
-			$menu .= $IN->popup_menu(
+			$menu .= "Mode:" . $IN->popup_menu(
 				-name    => 'mm',
 				-values  => ['average','spot','backlit','matrix'],
 				-default => $mm
 			);
 
-			$menu .= $IN->popup_menu(
+			$menu .= "DRC:" . $IN->popup_menu(
 				-name    => 'drc',
 				-values  => ['off','low','med','high'],
 				-default => $drc
 			);
 
-			$menu .= $IN->popup_menu(
+			$menu .= "Shut:" . $IN->popup_menu(
 				-name    => 'ss',
-				-values  => [10000000, 1000000, 100000, 50000, 10000, 1000],
+				-values  => [10000000, 1000000, 500000, 100000, 33333, 16666, 10000, 2000, 1000],
+				-labels  => {10000000 => '10s', 1000000 => '1s', 500000 => '1/2s', 100000 => '1/10s', 33333 => '1/30s', 16666 => '1/60s', 10000 => '1/100s', 2000 => '1/500s', 1000 => '1/1000s'},
 				-default => $ss
 			);    
 
+			$menu .= "Ref:" . $IN->popup_menu(
+				-name    => 'refresh',
+				-values  => [300, 60, 30, 15, 5, 1],
+				-labels  => {300 => '5m', 60 => '1m', 30 => '30s', 15 => '15s', 5 => '5s', 1 => '1s'},
+				-default => $refresh
+			); 
+			
 			$menu .= $IN->submit(
-				-value => 'Refresh'
+				-value => 'Reload'
 			);
 
 			# CSS-formatted strings of the image size
@@ -215,7 +226,8 @@ EOF
 					RC_OK,
 					undef,
 					[
-						'Content-Type' => "text/html"
+						'Content-Type' => "text/html",
+						'Refresh' => "$refresh"
 					],
 					$html
 				)
